@@ -4,7 +4,9 @@ import requests
 
 season_id = "2024"
 
-url = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2024/players?scoringPeriodId=0&view=players_wl"
+url = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}/players?scoringPeriodId=0&view=players_wl".format(season_id)
+
+teamUrl = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}?view=proTeamSchedules_wl".format(season_id)
 
 league_id = "726244831"
 
@@ -20,14 +22,21 @@ headers = {
 }
 
 r = requests.get(url, headers=headers, cookies = espn_cookies)
+rTeam = requests.get(teamUrl, headers=headers, cookies = espn_cookies)
 
 player_data = r.json()
+team_data = rTeam.json()
 
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
 
-
+print(team_data)
 
 df = pd.DataFrame(player_data)
-print(df.sample(5))
+player_df = df[['defaultPositionId', 'fullName', 'id', 'proTeamId']].copy()
+player_df.rename(columns= {'id':'player_id'}, inplace = True)
+print(player_df.sample(5))
+
 
 
 
