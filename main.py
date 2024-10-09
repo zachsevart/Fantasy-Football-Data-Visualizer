@@ -1,113 +1,57 @@
-import pandas as pd
-import requests
 import streamlit as st
-
-
-season_id = "2024"
-
-url = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}/players?scoringPeriodId=0&view=players_wl".format(season_id)
-
-teamUrl = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}?view=proTeamSchedules_wl".format(season_id)
-
-league_id = "726244831"
-
-espn_cookies = {"swid" : "{9B378FA4-FF7E-4A2E-9642-5BD40FA9792F}", "espn_s2" : "AECnQvlROrsEi9zJjkWEELp2Bf0pPwrHh/eSuOtiLzr33NBA50nx71JbZpUAoeH3RDxVyKri5IiEVkl7PicQApwvmVzKGeBrJBBh7CCwFOkCpEKdhVYDAKNvWICcmAiNikwma9KXhkxlBvpJe2npIlDVdHHt0zu4Ccnjv4rhroCVndy0bUOsXdNOQGfoXVF4HkMqLtd6kmHptSNAZHO/lTj/G14qarL+0ydl1VW67w5JI494t2aNhwARE0Zjrcko23YiEJmi6R4+lOTarHdONWePAPEEFJ58IO2xv9GTGfLrNy8uCN94K1iQjrWtGn01D/c="}
-
-headers = {
-    'Connection' : 'keep-alive',
-    'Accept' : 'application/json, test/plain, */*',
-    'User-Agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
-    'x-fantasy-filter' : '{"filterActive":null}',
-    'x-fantasy-platform' : 'kona-PROD-924d3c065ac5086e75ca68478d4e78341e18ba53',
-    'x-fantasy-source' : 'kona'
-}
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import base64
+import pandas as pd
 
 
 
-pd.set_option('display.max_columns', None)
-pd.set_option('display.max_rows', None)
+st.title('Current Wide Reciever stats')
 
+st.markdown("""filler text""")
 
+st.sidebar.header('User Input Features')
+selected_year = st.sidebar.selectbox('Year', list(reversed(range(2005,2025))))
 
-def get_draft_details(league_id, season_id):
+@st.cache_data
+def load_data(year):
+    url = "https://fantasydata.com/nfl/fantasy-football-leaders?scope=season&sp={}_REG&scoring=fpts_ppr&order_by=fpts_ppr&sort_dir=desc".format(year)
+    html = pd.read_html(url, header = 1)
+    df = html[0]
+    print(df.columns)
+    df.rename(columns={'YDS.1': 'Rushing Yards', 'YDS.2' : 'Receiving Yards ', 'TD.1': 'Rushing TDs', 'TD.2': 'Receiving TDs'}, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    raw = df
+    raw = raw.fillna(0)
 
-    url = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}/segments/0/leagues/{}?view=mDraftDetail&view=mSettings&view=mTeam&view=modular&view=mNav".format(season_id, league_id)
+    
+    
+    return raw
 
-    r = requests.get(url, headers=headers, cookies = espn_cookies)
+def game_log(year, name):
+    url = "https://fantasydata.com/nfl/{}-fantasy/20868?scoring=fpts_ppr&sp={}_REG".format(name, year)
+    html = pd.read_html(url, header = 1)
+    df = html[2]
+    print(df.columns)
+    raw = df
+    raw = raw.fillna(0)
 
-    raw = r.json()
-    draftDetails = raw[0]
-    picks = draftDetails['draftDetail']['picks']
-    df = pd.DataFrame(picks)
-    draft_df = df[['overallPickNumber', 'playerId', 'teamId']].copy()
-    return draft_df
+    return raw
 
-def get_player_info(season_id):
-    url = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}/players?scoringPeriodId=0&view=players_wl".format(season_id)
+fork = game_log(selected_year, 'alexander-mattison')
 
-    r = requests.get(url, headers=headers, cookies = espn_cookies)
+playerStats = load_data(selected_year)
 
-    raw = r.json()
-    players = raw[0]
+teams = sorted(playerStats.TEAM.unique())
+selected = st.sidebar.multiselect('Team', teams, teams)
 
-    df = pd.DataFrame(players)
+positions = ['RB', 'QB', 'WR', 'FB', 'TE']
+selected_pos = st.sidebar.multiselect('Position', positions, positions)
 
+df_select = playerStats[(playerStats.TEAM.isin(selected)) & (playerStats.POS.isin(selected_pos))]
 
-    player_df = df[['defaultPositionId', 'fullName', 'id', 'proTeamId']].copy()
-    player_df.rename(columns= {'id':'player_id'}, inplace = True)
-
-    return player_df
-
-def get_team_info(season_id):
-    url = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{}?view=proTeamSchedules_wl".format(season_id)
-
-    r = requests.get(url, headers=headers, cookies = espn_cookies)
-
-    raw = r.json()
-
-    team_names = raw['settings']['proTeams']
-
-    dfteam = pd.DataFrame(team_names)
-    teamdf = dfteam[['id', 'location', 'name']].copy()
-    teamdf["team name"] = teamdf['location'].astype(str) + ' '+ teamdf['name']
-    teamdf.rename(columns = {'id': 'team_id'}, inplace = True)
-
-
-
-st.title("Fantasy Football Data Viewer")
-
-# Inputs for league_id and season_id
-league_id_input = st.text_input("Enter League ID", value=league_id)
-season_id_input = st.text_input("Enter Season ID", value=season_id)
-
-# Select which data to view
-option = st.selectbox(
-    'Which data would you like to view?',
-    ('Draft Details', 'Player Info', 'Team Info')
-)
-
-if st.button("Fetch Data"):
-    if option == 'Draft Details':
-        draft_data = get_draft_details(league_id_input, season_id_input)
-        st.write("Draft Details Data")
-        st.dataframe(draft_data)
-    elif option == 'Player Info':
-        player_data = get_player_info(season_id_input)
-        st.write("Player Info Data")
-        st.dataframe(player_data)
-    elif option == 'Team Info':
-        team_data = get_team_info(season_id_input)
-        st.write("Team Info Data")
-        st.dataframe(team_data)
-
-
-
-
-
-
-
-
-
-
-
-
+st.header('Display player stats of selected teams')
+st.write('Data dimension: ' + str(df_select.shape[0]) + ' rows and ' + str(df_select.shape[1]) + ' columns.')
+st.dataframe(df_select)
+st.dataframe(fork)
