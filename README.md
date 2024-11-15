@@ -20,3 +20,5 @@ This project is a web application built with Streamlit that simplifies the proce
 1. Clone the repository:
    ```bash
    git clone https://github.com/yourusername/fantasy-football-data-explorer.git
+
+2. use command "Streamlit run main.py" to host locally, I will deploy this once I finish the model to predict player stats for a given week.
