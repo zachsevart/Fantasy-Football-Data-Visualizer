@@ -24,7 +24,7 @@ def game_log(year, name):
         [year],
         ['week', 'player_display_name', 'headshot_url', 
          'fantasy_points', 'receiving_yards', 'receptions', 'receiving_tds', 
-         'position', 'target_share', 'air_yards_share']
+         ]
     )
     # Filter by player name
     playerdf = weeklySum[weeklySum["player_display_name"] == name]
@@ -35,6 +35,9 @@ def game_log(year, name):
         headshot_url = playerdf.iloc[0]["headshot_url"]
         # Drop the headshot_url column to clean up the DataFrame
         playerdf = playerdf.drop(columns=["headshot_url", "player_display_name"])
+    
+    playerdf.rename(columns={'receiving_yards': 'Receiving Yards', 'fantasy_points': 'Fantasy Points', 'receptions': 'Receptions', 'receiving_tds': 'Receiving TDs'}, inplace=True)
+
     
     return playerdf, headshot_url
 
@@ -81,10 +84,10 @@ if playerGameLog:  # Ensure a player is selected
 
     fork, headshot_url = game_log(selected_year, playerGameLog)  # Use selected player
     if scoringStyle == "Half PPR":
-        fork["fantasy_points"] += fork["receptions"] * 0.5
+        fork["Fantasy Points"] += fork["Receptions"] * 0.5
 
     elif scoringStyle == "PPR":
-        fork["fantasy_points"] += fork["receptions"]
+        fork["Fantasy Points"] += fork["Receptions"]
 
     # Create a two-column layout
     col1, col2 = st.columns([1, 4])  # Adjust the width ratio as needed
@@ -117,7 +120,7 @@ if playerGameLog:  # Ensure a player is selected
     # Apply formatting to the DataFrame
     if not fork.empty:
         styled_fork = fork.style.applymap(
-            highlight_points, subset=['fantasy_points']
+            highlight_points, subset=['Fantasy Points']
         )
 
         # Convert styled DataFrame to HTML and display using markdown
@@ -126,5 +129,80 @@ if playerGameLog:  # Ensure a player is selected
                 styled_fork.to_html(escape=False, index=False), unsafe_allow_html=True
             )
 
+
+from transformers import pipeline
+from sentence_transformers import SentenceTransformer, util
+import torch
+
+
+st.title("NFL Data Question Answering")
+print(column for column in nfl.see_weekly_cols())
+# Load NFL weekly data
+nfl_data = nfl.import_weekly_data([2024])
+
+# Preprocess the data
+relevant_columns = ['player_name', 'week', 'receiving_yards', 'receiving_tds','passing_tds', 'passing_yards','recent_team', 'position', 'fantasy_points_ppr']
+nfl_data = nfl_data[relevant_columns]
+nfl_data = nfl_data.fillna(0)
+nfl_text = nfl_data.to_string(index=False)
+
+# Split the data into chunks
+def split_text(text, chunk_size=500):
+    words = text.split()
+    return [' '.join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
+
+chunks = split_text(nfl_text)
+
+# Load the embedding model
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Embed the chunks
+with st.spinner('Indexing data...'):
+    chunk_embeddings = embedder.encode(chunks, convert_to_tensor=True)
+
+# Load the QA pipeline
+qa_pipeline = pipeline(
+    "question-answering",
+    model="deepset/roberta-base-squad2",
+    tokenizer="deepset/roberta-base-squad2"
+)
+
+# Instructions to the user
+st.write("""
+    **Instructions:**
+    - Ask questions about NFL data, such as:
+        - "Who has the most receiving yards?"
+        - "Which player scored the most passing touchdowns?"
+    - The model will provide answers based on the available data.
+""")
+
+# User input
+user_question = st.text_input("Ask a question about NFL data:")
+
+if user_question:
+    with st.spinner('Processing your question...'):
+        # Embed the user's question
+        question_embedding = embedder.encode(user_question, convert_to_tensor=True)
+
+        # Compute cosine similarities
+        cosine_scores = util.cos_sim(question_embedding, chunk_embeddings)[0]
+
+        # Find the most relevant chunks
+        top_k = 3
+        top_results = torch.topk(cosine_scores, k=top_k)
+
+        # Combine the top chunks
+        relevant_text = ' '.join([chunks[idx] for idx in top_results.indices])
+
+        # Ensure context length is within model limits
+        max_context_length = 450  # Adjusted to fit within model's token limit
+        tokens = qa_pipeline.tokenizer.tokenize(relevant_text)
+        if len(tokens) > max_context_length:
+            tokens = tokens[:max_context_length]
+            relevant_text = qa_pipeline.tokenizer.convert_tokens_to_string(tokens)
+
+        # Get the answer
+        result = qa_pipeline({'context': relevant_text, 'question': user_question})
+        st.write(f"**Answer:** {result['answer']}")
 
 
